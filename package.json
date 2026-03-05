@@ -14,9 +14,11 @@
 		"publish": true
 	},
 	"dependencies": {
+		"@radix-ui/colors": "^3.0.0",
 		"isbot": "5.1.32",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
+		"react-resizable-panels": "^4.7.1",
 		"react-router": "7.9.6"
 	},
 	"devDependencies": {
