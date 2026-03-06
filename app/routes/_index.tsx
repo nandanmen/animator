@@ -1,21 +1,92 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
 const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
 
-function buildPreviewDocument(bodyHtml: string): string {
-	return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><script src="${TAILWIND_CDN}"></script></head><body class="h-screen flex items-center justify-center">${bodyHtml}</body></html>`;
+const PICKER_SCRIPT = `
+(function() {
+  var lastHovered = null;
+  var hoverClass = 'animator-hover-ring';
+
+  document.addEventListener('mousemove', function(e) {
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    if (el !== lastHovered) {
+      if (lastHovered) lastHovered.classList.remove(hoverClass);
+      lastHovered = el && el !== document.body ? el : null;
+      if (lastHovered) lastHovered.classList.add(hoverClass);
+    }
+  }, true);
+
+  document.addEventListener('mouseleave', function() {
+    if (lastHovered) {
+      lastHovered.classList.remove(hoverClass);
+      lastHovered = null;
+    }
+  }, true);
+
+  document.addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var el = e.target;
+    if (!el || !el.attributes || el === document.body) return;
+    var attrs = {};
+    for (var i = 0; i < el.attributes.length; i++) {
+      var a = el.attributes[i];
+      attrs[a.name] = a.value;
+    }
+    window.parent.postMessage({
+      type: 'animator-select',
+      tagName: el.tagName.toLowerCase(),
+      attributes: attrs
+    }, '*');
+  }, true);
+})();
+`;
+
+const PICKER_HOVER_STYLES = `
+.animator-hover-ring {
+  outline: 2px solid var(--blue-9, #3b82f6);
+  outline-offset: 2px;
 }
+`;
+
+function buildPreviewDocument(bodyHtml: string): string {
+	// Use .join to avoid </script> in the script body breaking the HTML
+	const scriptBody = PICKER_SCRIPT.replace(/<\/script>/gi, "</scr" + "ipt>");
+	return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><script src="${TAILWIND_CDN}"></script><style>${PICKER_HOVER_STYLES}</style></head><body class="h-screen flex items-center justify-center">${bodyHtml}<script>${scriptBody}</script></body></html>`;
+}
+
+export type NodeProperties = {
+	tagName: string;
+	attributes: Record<string, string>;
+};
 
 export default function Index() {
 	const [pastedHtml, setPastedHtml] = useState("");
+	const [selectedNode, setSelectedNode] = useState<NodeProperties | null>(null);
+
+	useEffect(() => {
+		const onMessage = (e: MessageEvent) => {
+			if (e.data?.type === "animator-select" && e.data?.tagName) {
+				setSelectedNode({
+					tagName: e.data.tagName,
+					attributes: e.data.attributes ?? {},
+				});
+			}
+		};
+		window.addEventListener("message", onMessage);
+		return () => window.removeEventListener("message", onMessage);
+	}, []);
 
 	const handlePaste = useCallback((e: React.ClipboardEvent) => {
 		e.preventDefault();
 		const html = e.clipboardData.getData("text/html");
 		const text = e.clipboardData.getData("text/plain");
 		const value = html.trim() || text.trim();
-		if (value) setPastedHtml(buildPreviewDocument(value));
+		if (value) {
+			setPastedHtml(buildPreviewDocument(value));
+			setSelectedNode(null);
+		}
 	}, []);
 
 	return (
@@ -71,8 +142,46 @@ export default function Index() {
 				maxSize={480}
 				className="flex flex-col p-4 pl-0 overflow-visible!"
 			>
-				<div className="flex items-center justify-center grow">
-					<p>Attributes</p>
+				<div className="flex flex-col grow bg-gray-1 rounded-xl shadow-sm overflow-hidden min-h-0">
+					<div className="px-3 py-2 border-b border-gray-6">
+						<h2 className="text-sm font-medium text-gray-12">Attributes</h2>
+						<p className="text-xs text-gray-10 mt-0.5">Click a node in the preview to inspect it.</p>
+					</div>
+					<div className="flex-1 overflow-auto p-3">
+						{selectedNode ? (
+							<dl className="space-y-3 text-sm">
+								<div>
+									<dt className="text-gray-10 font-medium mb-0.5">Tag</dt>
+									<dd className="text-gray-12 font-mono">&lt;{selectedNode.tagName}&gt;</dd>
+								</div>
+								{Object.keys(selectedNode.attributes).length > 0 ? (
+									<div>
+										<dt className="text-gray-10 font-medium mb-1">Attributes</dt>
+										<dd className="space-y-1.5">
+											{Object.entries(selectedNode.attributes).map(([name, value]) => (
+												<div key={name} className="font-mono text-gray-12 text-xs bg-gray-2 rounded px-2 py-1.5 break-all">
+													<span className="text-blue-11">{name}</span>
+													{value ? (
+														<>
+															<span className="text-gray-10">=</span>
+															<span className="text-green-11">&quot;{value}&quot;</span>
+														</>
+													) : null}
+												</div>
+											))}
+										</dd>
+									</div>
+								) : (
+									<div>
+										<dt className="text-gray-10 font-medium mb-0.5">Attributes</dt>
+										<dd className="text-gray-9 text-xs">None</dd>
+									</div>
+								)}
+							</dl>
+						) : (
+							<p className="text-gray-9 text-sm">No node selected. Click an element in the preview.</p>
+						)}
+					</div>
 				</div>
 			</Panel>
 		</Group>
