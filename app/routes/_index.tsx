@@ -1,79 +1,99 @@
 import { html } from "@codemirror/lang-html";
 import CodeMirror from "@uiw/react-codemirror";
-import { useCallback, useRef, useState } from "react";
+import * as beautify from "js-beautify";
+import { useCallback, useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
+
+const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
+
+const PICKER_SCRIPT = `
+(function() {
+  var lastHovered = null;
+  var hoverClass = 'animator-hover-ring';
+
+  document.addEventListener('mousemove', function(e) {
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    if (el !== lastHovered) {
+      if (lastHovered) lastHovered.classList.remove(hoverClass);
+      lastHovered = el && el !== document.body ? el : null;
+      if (lastHovered) lastHovered.classList.add(hoverClass);
+    }
+  }, true);
+
+  document.addEventListener('mouseleave', function() {
+    if (lastHovered) {
+      lastHovered.classList.remove(hoverClass);
+      lastHovered = null;
+    }
+  }, true);
+
+  document.addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var el = e.target;
+    if (!el || !el.attributes || el === document.body) return;
+    var attrs = {};
+    for (var i = 0; i < el.attributes.length; i++) {
+      var a = el.attributes[i];
+      attrs[a.name] = a.value;
+    }
+    window.parent.postMessage({
+      type: 'animator-select',
+      tagName: el.tagName.toLowerCase(),
+      attributes: attrs
+    }, '*');
+  }, true);
+})();
+`;
+
+const PICKER_HOVER_STYLES = `
+.animator-hover-ring {
+  outline: 2px solid var(--blue-9, #3b82f6);
+  outline-offset: 2px;
+}
+`;
+
+function buildPreviewDocument(bodyHtml: string): string {
+	const scriptBody = PICKER_SCRIPT.replace(/<\/script>/gi, "</scr" + "ipt>");
+	return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><script src="${TAILWIND_CDN}"></script><style>${PICKER_HOVER_STYLES}</style></head><body class="h-screen flex items-center justify-center">${bodyHtml}<script>${scriptBody}</script></body></html>`;
+}
 
 export type NodeProperties = {
 	tagName: string;
 	attributes: Record<string, string>;
 };
 
-function getAttributes(el: Element): Record<string, string> {
-	const attrs: Record<string, string> = {};
-	for (let i = 0; i < el.attributes.length; i++) {
-		const a = el.attributes[i];
-		attrs[a.name] = a.value;
-	}
-	return attrs;
-}
-
 export default function Index() {
 	const [pastedSnippet, setPastedSnippet] = useState("");
 	const [selectedNode, setSelectedNode] = useState<NodeProperties | null>(null);
-	const lastHoveredRef = useRef<Element | null>(null);
-	const previewContentRef = useRef<HTMLDivElement | null>(null);
-	const hoverClass = "animator-hover-ring";
+
+	useEffect(() => {
+		const onMessage = (e: MessageEvent) => {
+			if (e.data?.type === "animator-select" && e.data?.tagName) {
+				setSelectedNode({
+					tagName: e.data.tagName,
+					attributes: e.data.attributes ?? {},
+				});
+			}
+		};
+		window.addEventListener("message", onMessage);
+		return () => window.removeEventListener("message", onMessage);
+	}, []);
 
 	const handlePaste = useCallback((e: React.ClipboardEvent) => {
 		e.preventDefault();
 		const htmlData = e.clipboardData.getData("text/html");
 		const text = e.clipboardData.getData("text/plain");
-		const value = htmlData.trim() || text.trim();
-		if (value) {
-			setPastedSnippet(value);
+		const raw = htmlData.trim() || text.trim();
+		if (raw) {
+			const formatted = beautify.html(raw, {
+				indent_size: 2,
+				wrap_line_length: 0,
+				preserve_newlines: false,
+			});
+			setPastedSnippet(formatted);
 			setSelectedNode(null);
 		}
-	}, []);
-
-	const handlePreviewMouseMove = useCallback(
-		(e: React.MouseEvent) => {
-			const el = document.elementFromPoint(e.clientX, e.clientY);
-			const content = previewContentRef.current;
-			let target: Element | null = el && el !== document.body ? el : null;
-			if (target && content && !content.contains(target)) target = null;
-			if (target === lastHoveredRef.current) return;
-			if (lastHoveredRef.current) {
-				lastHoveredRef.current.classList.remove(hoverClass);
-			}
-			lastHoveredRef.current = target;
-			if (target) target.classList.add(hoverClass);
-		},
-		[],
-	);
-
-	const handlePreviewMouseLeave = useCallback(() => {
-		if (lastHoveredRef.current) {
-			lastHoveredRef.current.classList.remove(hoverClass);
-			lastHoveredRef.current = null;
-		}
-	}, []);
-
-	const handlePreviewClick = useCallback((e: React.MouseEvent) => {
-		e.preventDefault();
-		e.stopPropagation();
-		const el = e.target as Element;
-		const content = previewContentRef.current;
-		if (
-			!el?.attributes ||
-			el === document.body ||
-			!content?.contains(el) ||
-			el === content
-		)
-			return;
-		setSelectedNode({
-			tagName: el.tagName.toLowerCase(),
-			attributes: getAttributes(el),
-		});
 	}, []);
 
 	return (
@@ -119,32 +139,23 @@ export default function Index() {
 				<section
 					className="flex flex-col grow bg-gray-1 rounded-xl shadow-sm overflow-hidden min-h-0 outline-none focus:ring-2 focus:ring-blue-6 focus:ring-offset-2"
 					onPaste={handlePaste}
-					onMouseMove={handlePreviewMouseMove}
-					onMouseLeave={handlePreviewMouseLeave}
-					onClick={handlePreviewClick}
-					onKeyDown={(e) => {
-						if (e.key === "Enter" || e.key === " ") e.preventDefault();
-					}}
 					// biome-ignore lint/a11y/noNoninteractiveTabindex: paste target must be focusable for Cmd+V
 					tabIndex={0}
 					aria-label="Preview: paste HTML here"
 				>
 					{pastedSnippet ? (
-						<div className="w-full h-full min-h-[320px] overflow-auto flex items-center justify-center p-6 bg-white rounded-xl">
-							{/* Pasted HTML is rendered in-document; Tailwind from the app applies */}
-							<div
-								ref={previewContentRef}
-								className="contents"
-								// biome-ignore lint/security/noDangerouslySetInnerHtml: preview renders user-pasted HTML in dev tool
-								dangerouslySetInnerHTML={{ __html: pastedSnippet }}
-							/>
-						</div>
+						<iframe
+							srcDoc={buildPreviewDocument(pastedSnippet)}
+							title="HTML preview with Tailwind"
+							className="w-full h-full min-h-[320px] border-0 rounded-xl bg-white"
+							sandbox="allow-same-origin allow-scripts"
+						/>
 					) : (
 						<div className="flex flex-col items-center justify-center grow text-gray-11 gap-2 p-6 text-center">
 							<p className="font-medium">Paste HTML here</p>
 							<p className="text-sm text-gray-10">
-								Use Cmd+V (Mac) or Ctrl+V (Windows) to paste. Tailwind classes will be styled by
-								the app.
+								Use Cmd+V (Mac) or Ctrl+V (Windows) to paste. Tailwind classes will be styled via
+								Play CDN.
 							</p>
 						</div>
 					)}
