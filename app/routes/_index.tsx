@@ -1,92 +1,79 @@
-import { useCallback, useEffect, useState } from "react";
+import { html } from "@codemirror/lang-html";
+import CodeMirror from "@uiw/react-codemirror";
+import { useCallback, useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
-
-const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
-
-const PICKER_SCRIPT = `
-(function() {
-  var lastHovered = null;
-  var hoverClass = 'animator-hover-ring';
-
-  document.addEventListener('mousemove', function(e) {
-    var el = document.elementFromPoint(e.clientX, e.clientY);
-    if (el !== lastHovered) {
-      if (lastHovered) lastHovered.classList.remove(hoverClass);
-      lastHovered = el && el !== document.body ? el : null;
-      if (lastHovered) lastHovered.classList.add(hoverClass);
-    }
-  }, true);
-
-  document.addEventListener('mouseleave', function() {
-    if (lastHovered) {
-      lastHovered.classList.remove(hoverClass);
-      lastHovered = null;
-    }
-  }, true);
-
-  document.addEventListener('click', function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    var el = e.target;
-    if (!el || !el.attributes || el === document.body) return;
-    var attrs = {};
-    for (var i = 0; i < el.attributes.length; i++) {
-      var a = el.attributes[i];
-      attrs[a.name] = a.value;
-    }
-    window.parent.postMessage({
-      type: 'animator-select',
-      tagName: el.tagName.toLowerCase(),
-      attributes: attrs
-    }, '*');
-  }, true);
-})();
-`;
-
-const PICKER_HOVER_STYLES = `
-.animator-hover-ring {
-  outline: 2px solid var(--blue-9, #3b82f6);
-  outline-offset: 2px;
-}
-`;
-
-function buildPreviewDocument(bodyHtml: string): string {
-	// Use .join to avoid </script> in the script body breaking the HTML
-	const scriptBody = PICKER_SCRIPT.replace(/<\/script>/gi, "</scr" + "ipt>");
-	return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><script src="${TAILWIND_CDN}"></script><style>${PICKER_HOVER_STYLES}</style></head><body class="h-screen flex items-center justify-center">${bodyHtml}<script>${scriptBody}</script></body></html>`;
-}
 
 export type NodeProperties = {
 	tagName: string;
 	attributes: Record<string, string>;
 };
 
-export default function Index() {
-	const [pastedHtml, setPastedHtml] = useState("");
-	const [selectedNode, setSelectedNode] = useState<NodeProperties | null>(null);
+function getAttributes(el: Element): Record<string, string> {
+	const attrs: Record<string, string> = {};
+	for (let i = 0; i < el.attributes.length; i++) {
+		const a = el.attributes[i];
+		attrs[a.name] = a.value;
+	}
+	return attrs;
+}
 
-	useEffect(() => {
-		const onMessage = (e: MessageEvent) => {
-			if (e.data?.type === "animator-select" && e.data?.tagName) {
-				setSelectedNode({
-					tagName: e.data.tagName,
-					attributes: e.data.attributes ?? {},
-				});
-			}
-		};
-		window.addEventListener("message", onMessage);
-		return () => window.removeEventListener("message", onMessage);
-	}, []);
+export default function Index() {
+	const [pastedSnippet, setPastedSnippet] = useState("");
+	const [selectedNode, setSelectedNode] = useState<NodeProperties | null>(null);
+	const lastHoveredRef = useRef<Element | null>(null);
+	const previewContentRef = useRef<HTMLDivElement | null>(null);
+	const hoverClass = "animator-hover-ring";
 
 	const handlePaste = useCallback((e: React.ClipboardEvent) => {
 		e.preventDefault();
-		const html = e.clipboardData.getData("text/html");
+		const htmlData = e.clipboardData.getData("text/html");
 		const text = e.clipboardData.getData("text/plain");
-		const value = html.trim() || text.trim();
+		const value = htmlData.trim() || text.trim();
 		if (value) {
-			setPastedHtml(buildPreviewDocument(value));
+			setPastedSnippet(value);
 			setSelectedNode(null);
 		}
+	}, []);
+
+	const handlePreviewMouseMove = useCallback(
+		(e: React.MouseEvent) => {
+			const el = document.elementFromPoint(e.clientX, e.clientY);
+			const content = previewContentRef.current;
+			let target: Element | null = el && el !== document.body ? el : null;
+			if (target && content && !content.contains(target)) target = null;
+			if (target === lastHoveredRef.current) return;
+			if (lastHoveredRef.current) {
+				lastHoveredRef.current.classList.remove(hoverClass);
+			}
+			lastHoveredRef.current = target;
+			if (target) target.classList.add(hoverClass);
+		},
+		[],
+	);
+
+	const handlePreviewMouseLeave = useCallback(() => {
+		if (lastHoveredRef.current) {
+			lastHoveredRef.current.classList.remove(hoverClass);
+			lastHoveredRef.current = null;
+		}
+	}, []);
+
+	const handlePreviewClick = useCallback((e: React.MouseEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		const el = e.target as Element;
+		const content = previewContentRef.current;
+		if (
+			!el?.attributes ||
+			el === document.body ||
+			!content?.contains(el) ||
+			el === content
+		)
+			return;
+		setSelectedNode({
+			tagName: el.tagName.toLowerCase(),
+			attributes: getAttributes(el),
+		});
 	}, []);
 
 	return (
@@ -98,35 +85,66 @@ export default function Index() {
 				maxSize={480}
 				className="flex flex-col p-4 pr-0 overflow-visible!"
 			>
-				<div className="flex items-center justify-center grow">
-					<p>Code</p>
+				<div className="flex flex-col grow bg-gray-1 rounded-xl shadow-sm overflow-hidden min-h-0">
+					<div className="px-3 py-2 border-b border-gray-6 shrink-0">
+						<h2 className="text-sm font-medium text-gray-12">Code</h2>
+						<p className="text-xs text-gray-10 mt-0.5">
+							Edit HTML; preview updates as you type.
+						</p>
+					</div>
+					<div className="flex-1 min-h-0 flex flex-col">
+						{pastedSnippet ? (
+							<CodeMirror
+								value={pastedSnippet}
+								onChange={setPastedSnippet}
+								extensions={[html()]}
+								basicSetup={{ lineNumbers: true }}
+								className="h-full text-sm [&_.cm-editor]:h-full [&_.cm-scroller]:min-h-[200px]"
+							/>
+						) : (
+							<div className="flex flex-col items-center justify-center grow text-gray-11 gap-2 p-6 text-center">
+								<p className="font-medium">Paste HTML in the preview to see the code here</p>
+								<p className="text-sm text-gray-10">
+									Use Cmd+V (Mac) or Ctrl+V (Windows) in the preview panel.
+								</p>
+							</div>
+						)}
+					</div>
 				</div>
 			</Panel>
 
 			<Separator className="w-2 mx-1 shrink-0 bg-transparent transition-colors hover:bg-gray-6 data-[data-separator=active]:bg-blue-6" />
 
 			<Panel id="preview" minSize={240} className="flex flex-col py-4 overflow-visible!">
-				{/* tabIndex needed so the panel is focusable and paste (Cmd+V) works */}
 				<section
 					className="flex flex-col grow bg-gray-1 rounded-xl shadow-sm overflow-hidden min-h-0 outline-none focus:ring-2 focus:ring-blue-6 focus:ring-offset-2"
 					onPaste={handlePaste}
+					onMouseMove={handlePreviewMouseMove}
+					onMouseLeave={handlePreviewMouseLeave}
+					onClick={handlePreviewClick}
+					onKeyDown={(e) => {
+						if (e.key === "Enter" || e.key === " ") e.preventDefault();
+					}}
 					// biome-ignore lint/a11y/noNoninteractiveTabindex: paste target must be focusable for Cmd+V
 					tabIndex={0}
 					aria-label="Preview: paste HTML here"
 				>
-					{pastedHtml ? (
-						<iframe
-							srcDoc={pastedHtml}
-							title="HTML preview with Tailwind"
-							className="w-full h-full min-h-[320px] border-0 rounded-xl bg-white"
-							sandbox="allow-same-origin allow-scripts"
-						/>
+					{pastedSnippet ? (
+						<div className="w-full h-full min-h-[320px] overflow-auto flex items-center justify-center p-6 bg-white rounded-xl">
+							{/* Pasted HTML is rendered in-document; Tailwind from the app applies */}
+							<div
+								ref={previewContentRef}
+								className="contents"
+								// biome-ignore lint/security/noDangerouslySetInnerHtml: preview renders user-pasted HTML in dev tool
+								dangerouslySetInnerHTML={{ __html: pastedSnippet }}
+							/>
+						</div>
 					) : (
 						<div className="flex flex-col items-center justify-center grow text-gray-11 gap-2 p-6 text-center">
 							<p className="font-medium">Paste HTML here</p>
 							<p className="text-sm text-gray-10">
-								Use Cmd+V (Mac) or Ctrl+V (Windows) to paste. Tailwind classes will be styled via
-								Play CDN.
+								Use Cmd+V (Mac) or Ctrl+V (Windows) to paste. Tailwind classes will be styled by
+								the app.
 							</p>
 						</div>
 					)}

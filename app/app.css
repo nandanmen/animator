@@ -95,3 +95,9 @@ html {
 	--color-red-11: var(--red-11);
 	--color-red-12: var(--red-12);
 }
+
+/* Preview picker hover ring (in-document HTML) */
+.animator-hover-ring {
+	outline: 2px solid var(--blue-9);
+	outline-offset: 2px;
+}
