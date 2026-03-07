@@ -2,7 +2,7 @@ import { html } from "@codemirror/lang-html";
 import { codeFolding, foldGutter } from "@codemirror/language";
 import CodeMirror from "@uiw/react-codemirror";
 import * as beautify from "js-beautify";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
 const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
@@ -159,10 +159,12 @@ export default function Index() {
 
 	const addKeyframe = useCallback(() => {
 		setKeyframesState((prev) => {
+			const active = prev.keyframes.find((k) => k.id === prev.activeKeyframeId);
+			const htmlToCopy = active?.html ?? "";
 			const nextFrame: Keyframe = {
 				id: crypto.randomUUID(),
 				name: nextKeyframeName(prev.keyframes),
-				html: "",
+				html: htmlToCopy,
 			};
 			return {
 				...prev,
@@ -231,50 +233,17 @@ export default function Index() {
 	);
 
 	return (
-		<Group orientation="horizontal" className="min-h-screen ">
-			<Panel
-				id="code"
-				defaultSize={320}
-				minSize={240}
-				maxSize={480}
-				className="flex flex-col py-4 overflow-visible!"
-			>
-				<div className="flex flex-col grow overflow-hidden min-h-0">
-					<div className="flex items-center gap-1 px-1 pb-2 shrink-0 border-b border-gray-6">
-						{keyframes.map((k) => (
-							<button
-								key={k.id}
-								type="button"
-								onClick={() => setActiveKeyframeId(k.id)}
-								className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors data-active:bg-gray-4 data-active:text-gray-12 text-gray-11 hover:text-gray-12 hover:bg-gray-3"
-								data-active={activeKeyframeId === k.id ? true : undefined}
-							>
-								<span className="truncate max-w-[120px]">{k.name}</span>
-								{keyframes.length > 1 ? (
-									<button
-										type="button"
-										aria-label={`Remove ${k.name}`}
-										className="shrink-0 p-0.5 rounded hover:bg-gray-5 text-gray-10 hover:text-red-11"
-										onClick={(e) => {
-											e.stopPropagation();
-											removeKeyframe(k.id);
-										}}
-									>
-										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-									</button>
-								) : null}
-							</button>
-						))}
-						<button
-							type="button"
-							onClick={addKeyframe}
-							className="flex items-center justify-center w-8 h-8 rounded-md text-gray-10 hover:text-gray-12 hover:bg-gray-3 shrink-0"
-							aria-label="Add keyframe"
-						>
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-						</button>
-					</div>
-					{activeKeyframe ? (
+		<div className="flex flex-col min-h-screen">
+			<Group orientation="horizontal" className="flex-1 min-h-0">
+				<Panel
+					id="code"
+					defaultSize={320}
+					minSize={240}
+					maxSize={480}
+					className="flex flex-col py-4 overflow-visible!"
+				>
+					<div className="flex flex-col grow overflow-hidden min-h-0">
+						{activeKeyframe ? (
 						<CodeMirror
 							value={activeKeyframe.html}
 							onChange={setActiveKeyframeHtml}
@@ -295,12 +264,12 @@ export default function Index() {
 							</p>
 						</div>
 					)}
-				</div>
-			</Panel>
+					</div>
+				</Panel>
 
-			<Separator className="w-2 mx-1 shrink-0 bg-transparent transition-colors hover:bg-gray-6 data-[data-separator=active]:bg-blue-6" />
+				<Separator className="w-2 mx-1 shrink-0 bg-transparent transition-colors hover:bg-gray-6 data-[data-separator=active]:bg-blue-6" />
 
-			<Panel id="preview" minSize={240} className="flex flex-col py-4 overflow-visible!">
+				<Panel id="preview" minSize={240} className="flex flex-col py-4 overflow-visible!">
 				<section
 					className="flex flex-col grow bg-gray-1 rounded-xl shadow-sm overflow-hidden min-h-0 outline-none focus:ring-2 focus:ring-blue-6 focus:ring-offset-2"
 					onPaste={handlePaste}
@@ -317,58 +286,111 @@ export default function Index() {
 						/>
 					) : null}
 				</section>
-			</Panel>
+				</Panel>
 
-			<Separator className="w-2 mx-1 shrink-0 bg-transparent transition-colors hover:bg-gray-6 data-[data-separator=active]:bg-blue-6" />
+				<Separator className="w-2 mx-1 shrink-0 bg-transparent transition-colors hover:bg-gray-6 data-[data-separator=active]:bg-blue-6" />
 
-			<Panel
-				id="attributes"
-				defaultSize={320}
-				minSize={240}
-				maxSize={480}
-				className="flex flex-col p-4 pl-0 overflow-visible!"
-			>
-				<div className="flex flex-col grow overflow-hidden min-h-0 justify-center">
-					{selectedNode ? (
-						<dl className="space-y-3 text-sm">
-							<div>
-								<dt className="text-gray-10 font-medium mb-0.5">Tag</dt>
-								<dd className="text-gray-12 font-mono">&lt;{selectedNode.tagName}&gt;</dd>
-							</div>
-							{Object.keys(selectedNode.attributes).length > 0 ? (
+				<Panel
+					id="attributes"
+					defaultSize={320}
+					minSize={240}
+					maxSize={480}
+					className="flex flex-col p-4 pl-0 overflow-visible!"
+				>
+					<div className="flex flex-col grow overflow-hidden min-h-0 justify-center">
+						{selectedNode ? (
+							<dl className="space-y-3 text-sm">
 								<div>
-									<dt className="text-gray-10 font-medium mb-1">Attributes</dt>
-									<dd className="space-y-1.5">
-										{Object.entries(selectedNode.attributes).map(([name, value]) => (
-											<div
-												key={name}
-												className="font-mono text-gray-12 text-xs bg-gray-2 rounded px-2 py-1.5 break-all"
-											>
-												<span className="text-blue-11">{name}</span>
-												{value ? (
-													<>
-														<span className="text-gray-10">=</span>
-														<span className="text-green-11">&quot;{value}&quot;</span>
-													</>
-												) : null}
-											</div>
-										))}
-									</dd>
+									<dt className="text-gray-10 font-medium mb-0.5">Tag</dt>
+									<dd className="text-gray-12 font-mono">&lt;{selectedNode.tagName}&gt;</dd>
 								</div>
-							) : (
-								<div>
-									<dt className="text-gray-10 font-medium mb-0.5">Attributes</dt>
-									<dd className="text-gray-9 text-xs">None</dd>
-								</div>
-							)}
-						</dl>
-					) : (
-						<p className="text-gray-9 text-sm">
-							No node selected. Click an element in the preview.
-						</p>
-					)}
+								{Object.keys(selectedNode.attributes).length > 0 ? (
+									<div>
+										<dt className="text-gray-10 font-medium mb-1">Attributes</dt>
+										<dd className="space-y-1.5">
+											{Object.entries(selectedNode.attributes).map(([name, value]) => (
+												<div
+													key={name}
+													className="font-mono text-gray-12 text-xs bg-gray-2 rounded px-2 py-1.5 break-all"
+												>
+													<span className="text-blue-11">{name}</span>
+													{value ? (
+														<>
+															<span className="text-gray-10">=</span>
+															<span className="text-green-11">&quot;{value}&quot;</span>
+														</>
+													) : null}
+												</div>
+											))}
+										</dd>
+									</div>
+								) : (
+									<div>
+										<dt className="text-gray-10 font-medium mb-0.5">Attributes</dt>
+										<dd className="text-gray-9 text-xs">None</dd>
+									</div>
+								)}
+							</dl>
+						) : (
+							<p className="text-gray-9 text-sm">
+								No node selected. Click an element in the preview.
+							</p>
+						)}
+					</div>
+				</Panel>
+			</Group>
+
+			{/* Timeline */}
+			<div className="shrink-0 border-t border-gray-6 bg-gray-2 px-4 py-3 flex items-center gap-2 min-h-[56px]">
+				<span className="text-xs font-medium text-gray-10 uppercase tracking-wider shrink-0">
+					Timeline
+				</span>
+				<div className="flex items-center gap-0 flex-1 min-w-0">
+					{keyframes.map((k, i) => (
+						<Fragment key={k.id}>
+							{i > 0 ? (
+								<div
+									className="w-6 h-0.5 bg-gray-6 shrink-0 rounded-full"
+									aria-hidden="true"
+								/>
+							) : null}
+							<button
+								type="button"
+								onClick={() => setActiveKeyframeId(k.id)}
+								className="flex items-center gap-2 shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors data-active:bg-gray-4 data-active:text-gray-12 data-active:ring-1 data-active:ring-gray-8 text-gray-11 hover:text-gray-12 hover:bg-gray-3"
+								data-active={activeKeyframeId === k.id ? true : undefined}
+							>
+								<span
+									className={`w-2 h-2 rounded-full shrink-0 ${activeKeyframeId === k.id ? "bg-blue-9 opacity-100" : "bg-current opacity-50"}`}
+									aria-hidden="true"
+								/>
+								<span className="truncate max-w-[100px]">{k.name}</span>
+								{keyframes.length > 1 ? (
+									<button
+										type="button"
+										aria-label={`Remove ${k.name}`}
+										className="shrink-0 p-0.5 rounded hover:bg-gray-5 text-gray-10 hover:text-red-11"
+										onClick={(e) => {
+											e.stopPropagation();
+											removeKeyframe(k.id);
+										}}
+									>
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+									</button>
+								) : null}
+							</button>
+						</Fragment>
+					))}
+					<button
+						type="button"
+						onClick={addKeyframe}
+						className="flex items-center justify-center w-8 h-8 rounded-md text-gray-10 hover:text-gray-12 hover:bg-gray-3 shrink-0 ml-1"
+						aria-label="Add keyframe"
+					>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+					</button>
 				</div>
-			</Panel>
-		</Group>
+			</div>
+		</div>
 	);
 }
