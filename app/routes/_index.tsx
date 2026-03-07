@@ -55,6 +55,18 @@ const PICKER_HOVER_STYLES = `
 `;
 
 const CODE_STORAGE_KEY = "animator-code";
+const KEYFRAMES_STORAGE_KEY = "animator-keyframes";
+
+export type Keyframe = {
+	id: string;
+	name: string;
+	html: string;
+};
+
+function nextKeyframeName(keyframes: Keyframe[]): string {
+	const n = keyframes.length + 1;
+	return `Keyframe ${n}`;
+}
 
 function buildPreviewDocument(bodyHtml: string): string {
 	const scriptBody = PICKER_SCRIPT.replace(/<\/script>/gi, "</scr" + "ipt>");
@@ -82,30 +94,109 @@ export type NodeProperties = {
 	attributes: Record<string, string>;
 };
 
+function loadKeyframesState(): { keyframes: Keyframe[]; activeKeyframeId: string } {
+	try {
+		const stored = localStorage.getItem(KEYFRAMES_STORAGE_KEY);
+		if (stored) {
+			const parsed = JSON.parse(stored) as {
+				keyframes: Keyframe[];
+				activeKeyframeId: string;
+			};
+			if (
+				Array.isArray(parsed.keyframes) &&
+				parsed.keyframes.length > 0 &&
+				typeof parsed.activeKeyframeId === "string"
+			) {
+				return {
+					keyframes: parsed.keyframes,
+					activeKeyframeId: parsed.activeKeyframeId,
+				};
+			}
+		}
+		// Migrate from legacy single-snippet storage
+		const legacy = localStorage.getItem(CODE_STORAGE_KEY);
+		const html = typeof legacy === "string" ? legacy : "";
+		const keyframes: Keyframe[] = [
+			{ id: crypto.randomUUID(), name: "Keyframe 1", html },
+		];
+		return { keyframes, activeKeyframeId: keyframes[0].id };
+	} catch {
+		const keyframes: Keyframe[] = [
+			{ id: crypto.randomUUID(), name: "Keyframe 1", html: "" },
+		];
+		return { keyframes, activeKeyframeId: keyframes[0].id };
+	}
+}
+
+function getInitialKeyframesState(): { keyframes: Keyframe[]; activeKeyframeId: string } {
+	return loadKeyframesState();
+}
+
 export default function Index() {
-	const [pastedSnippet, setPastedSnippet] = useState("");
+	const [keyframesState, setKeyframesState] = useState(getInitialKeyframesState);
+	const keyframes = keyframesState.keyframes;
+	const activeKeyframeId = keyframesState.activeKeyframeId;
+	const setActiveKeyframeId = (id: string) => {
+		setKeyframesState((prev) => ({ ...prev, activeKeyframeId: id }));
+	};
 	const [selectedNode, setSelectedNode] = useState<NodeProperties | null>(null);
 
-	useEffect(() => {
-		try {
-			const stored = localStorage.getItem(CODE_STORAGE_KEY);
-			if (stored) setPastedSnippet(stored);
-		} catch {
-			// ignore localStorage errors (private mode, etc.)
-		}
+	const activeKeyframe =
+		keyframes.find((k) => k.id === activeKeyframeId) ?? keyframes[0];
+	const setActiveKeyframeHtml = useCallback(
+		(html: string) => {
+			if (!activeKeyframe) return;
+			const targetId = activeKeyframe.id;
+			setKeyframesState((prev) => ({
+				...prev,
+				keyframes: prev.keyframes.map((k) =>
+					k.id === targetId ? { ...k, html } : k,
+				),
+			}));
+		},
+		[activeKeyframe],
+	);
+
+	const addKeyframe = useCallback(() => {
+		setKeyframesState((prev) => {
+			const nextFrame: Keyframe = {
+				id: crypto.randomUUID(),
+				name: nextKeyframeName(prev.keyframes),
+				html: "",
+			};
+			return {
+				...prev,
+				keyframes: [...prev.keyframes, nextFrame],
+				activeKeyframeId: nextFrame.id,
+			};
+		});
+	}, []);
+
+	const removeKeyframe = useCallback((id: string) => {
+		setKeyframesState((prev) => {
+			const keyframes = prev.keyframes;
+			const idx = keyframes.findIndex((k) => k.id === id);
+			if (idx < 0 || keyframes.length <= 1) return prev;
+			const nextKeyframes = keyframes.filter((k) => k.id !== id);
+			const nextActive = keyframes[idx + 1] ?? keyframes[idx - 1];
+			return {
+				...prev,
+				keyframes: nextKeyframes,
+				activeKeyframeId: nextActive?.id ?? prev.activeKeyframeId,
+			};
+		});
 	}, []);
 
 	useEffect(() => {
 		try {
-			if (pastedSnippet) {
-				localStorage.setItem(CODE_STORAGE_KEY, pastedSnippet);
-			} else {
-				localStorage.removeItem(CODE_STORAGE_KEY);
-			}
+			localStorage.setItem(
+				KEYFRAMES_STORAGE_KEY,
+				JSON.stringify({ keyframes, activeKeyframeId }),
+			);
 		} catch {
 			// ignore localStorage errors
 		}
-	}, [pastedSnippet]);
+	}, [keyframes, activeKeyframeId]);
 
 	useEffect(() => {
 		const onMessage = (e: MessageEvent) => {
@@ -120,21 +211,24 @@ export default function Index() {
 		return () => window.removeEventListener("message", onMessage);
 	}, []);
 
-	const handlePaste = useCallback((e: React.ClipboardEvent) => {
-		e.preventDefault();
-		const htmlData = e.clipboardData.getData("text/html");
-		const text = e.clipboardData.getData("text/plain");
-		const raw = htmlData.trim() || text.trim();
-		if (raw) {
-			const formatted = beautify.html(raw, {
-				indent_size: 2,
-				wrap_line_length: 80,
-				preserve_newlines: false,
-			});
-			setPastedSnippet(formatted);
-			setSelectedNode(null);
-		}
-	}, []);
+	const handlePaste = useCallback(
+		(e: React.ClipboardEvent) => {
+			e.preventDefault();
+			const htmlData = e.clipboardData.getData("text/html");
+			const text = e.clipboardData.getData("text/plain");
+			const raw = htmlData.trim() || text.trim();
+			if (raw) {
+				const formatted = beautify.html(raw, {
+					indent_size: 2,
+					wrap_line_length: 80,
+					preserve_newlines: false,
+				});
+				setActiveKeyframeHtml(formatted);
+				setSelectedNode(null);
+			}
+		},
+		[setActiveKeyframeHtml],
+	);
 
 	return (
 		<Group orientation="horizontal" className="min-h-screen ">
@@ -146,10 +240,44 @@ export default function Index() {
 				className="flex flex-col py-4 overflow-visible!"
 			>
 				<div className="flex flex-col grow overflow-hidden min-h-0">
-					{pastedSnippet ? (
+					<div className="flex items-center gap-1 px-1 pb-2 shrink-0 border-b border-gray-6">
+						{keyframes.map((k) => (
+							<button
+								key={k.id}
+								type="button"
+								onClick={() => setActiveKeyframeId(k.id)}
+								className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors data-active:bg-gray-4 data-active:text-gray-12 text-gray-11 hover:text-gray-12 hover:bg-gray-3"
+								data-active={activeKeyframeId === k.id ? true : undefined}
+							>
+								<span className="truncate max-w-[120px]">{k.name}</span>
+								{keyframes.length > 1 ? (
+									<button
+										type="button"
+										aria-label={`Remove ${k.name}`}
+										className="shrink-0 p-0.5 rounded hover:bg-gray-5 text-gray-10 hover:text-red-11"
+										onClick={(e) => {
+											e.stopPropagation();
+											removeKeyframe(k.id);
+										}}
+									>
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+									</button>
+								) : null}
+							</button>
+						))}
+						<button
+							type="button"
+							onClick={addKeyframe}
+							className="flex items-center justify-center w-8 h-8 rounded-md text-gray-10 hover:text-gray-12 hover:bg-gray-3 shrink-0"
+							aria-label="Add keyframe"
+						>
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+						</button>
+					</div>
+					{activeKeyframe ? (
 						<CodeMirror
-							value={pastedSnippet}
-							onChange={setPastedSnippet}
+							value={activeKeyframe.html}
+							onChange={setActiveKeyframeHtml}
 							extensions={[
 								html(),
 								// EditorView.lineWrapping,
@@ -180,22 +308,14 @@ export default function Index() {
 					tabIndex={0}
 					aria-label="Preview: paste HTML here"
 				>
-					{pastedSnippet ? (
+					{activeKeyframe ? (
 						<iframe
-							srcDoc={buildPreviewDocument(pastedSnippet)}
+							srcDoc={buildPreviewDocument(activeKeyframe.html)}
 							title="HTML preview with Tailwind"
 							className="w-full h-full min-h-[320px] border-0 rounded-xl bg-white"
 							sandbox="allow-same-origin allow-scripts"
 						/>
-					) : (
-						<div className="flex flex-col items-center justify-center grow text-gray-11 gap-2 p-6 text-center">
-							<p className="font-medium">Paste HTML here</p>
-							<p className="text-sm text-gray-10">
-								Use Cmd+V (Mac) or Ctrl+V (Windows) to paste. Tailwind classes will be styled via
-								Play CDN.
-							</p>
-						</div>
-					)}
+					) : null}
 				</section>
 			</Panel>
 
