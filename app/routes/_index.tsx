@@ -1,4 +1,6 @@
 import { html } from "@codemirror/lang-html";
+import { codeFolding, foldGutter } from "@codemirror/language";
+import { EditorView } from "@codemirror/view";
 import CodeMirror from "@uiw/react-codemirror";
 import * as beautify from "js-beautify";
 import { useCallback, useEffect, useState } from "react";
@@ -58,6 +60,22 @@ function buildPreviewDocument(bodyHtml: string): string {
 	return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><script src="${TAILWIND_CDN}"></script><style>${PICKER_HOVER_STYLES}</style></head><body class="h-screen flex items-center justify-center">${bodyHtml}<script>${scriptBody}</script></body></html>`;
 }
 
+const FOLD_CARET_SVG =
+	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M8 10L10.9393 12.9393C11.5251 13.5251 12.4749 13.5251 13.0607 12.9393L16 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function createFoldMarker(open: boolean): HTMLElement {
+	const span = document.createElement("span");
+	span.className = "cm-foldMarker";
+	span.innerHTML = FOLD_CARET_SVG;
+	span.style.display = "inline-flex";
+	span.style.alignItems = "center";
+	span.style.justifyContent = "center";
+	if (!open) {
+		span.style.transform = "rotate(-90deg)";
+	}
+	return span;
+}
+
 export type NodeProperties = {
 	tagName: string;
 	attributes: Record<string, string>;
@@ -88,7 +106,7 @@ export default function Index() {
 		if (raw) {
 			const formatted = beautify.html(raw, {
 				indent_size: 2,
-				wrap_line_length: 0,
+				wrap_line_length: 80,
 				preserve_newlines: false,
 			});
 			setPastedSnippet(formatted);
@@ -103,33 +121,30 @@ export default function Index() {
 				defaultSize={320}
 				minSize={240}
 				maxSize={480}
-				className="flex flex-col p-4 pr-0 overflow-visible!"
+				className="flex flex-col py-4 overflow-visible!"
 			>
-				<div className="flex flex-col grow bg-gray-1 rounded-xl shadow-sm overflow-hidden min-h-0">
-					<div className="px-3 py-2 border-b border-gray-6 shrink-0">
-						<h2 className="text-sm font-medium text-gray-12">Code</h2>
-						<p className="text-xs text-gray-10 mt-0.5">
-							Edit HTML; preview updates as you type.
-						</p>
-					</div>
-					<div className="flex-1 min-h-0 flex flex-col">
-						{pastedSnippet ? (
-							<CodeMirror
-								value={pastedSnippet}
-								onChange={setPastedSnippet}
-								extensions={[html()]}
-								basicSetup={{ lineNumbers: true }}
-								className="h-full text-sm [&_.cm-editor]:h-full [&_.cm-scroller]:min-h-[200px]"
-							/>
-						) : (
-							<div className="flex flex-col items-center justify-center grow text-gray-11 gap-2 p-6 text-center">
-								<p className="font-medium">Paste HTML in the preview to see the code here</p>
-								<p className="text-sm text-gray-10">
-									Use Cmd+V (Mac) or Ctrl+V (Windows) in the preview panel.
-								</p>
-							</div>
-						)}
-					</div>
+				<div className="flex flex-col grow overflow-hidden min-h-0">
+					{pastedSnippet ? (
+						<CodeMirror
+							value={pastedSnippet}
+							onChange={setPastedSnippet}
+							extensions={[
+								html(),
+								EditorView.lineWrapping,
+								codeFolding(),
+								foldGutter({ markerDOM: createFoldMarker }),
+							]}
+							basicSetup={{ lineNumbers: true, foldGutter: false }}
+							className="h-fit text-[13px] py-4 [&_.cm-editor]:h-full [&_.cm-editor]:bg-transparent! [&_.cm-scroller]:min-h-[200px] [&_.cm-lineNumbers]:hidden! [&_.cm-content]:bg-transparent [&_.cm-gutters]:bg-gray-3! [&_.cm-gutters]:border-none! [&_.cm-scroller]:font-mono! [&_.cm-scroller]:leading-normal! [&_.cm-focused]:outline-none! [&_.cm-gutterElement_span]:w-[19.5px] [&_.cm-gutterElement_span]:mx-1 [&_.cm-gutterElement_span]:flex! [&_.cm-gutterElement_span]:items-center! [&_.cm-gutterElement_span]:justify-center! [&_.cm-gutterElement_span]:h-[19.5px] [&_.cm-gutterElement_span]:hover:bg-gray-4 [&_.cm-gutterElement_span]:rounded"
+						/>
+					) : (
+						<div className="flex flex-col items-center justify-center grow text-gray-11 gap-2 p-6 text-center">
+							<p className="font-medium">Paste HTML in the preview to see the code here</p>
+							<p className="text-sm text-gray-10">
+								Use Cmd+V (Mac) or Ctrl+V (Windows) in the preview panel.
+							</p>
+						</div>
+					)}
 				</div>
 			</Panel>
 
@@ -171,46 +186,45 @@ export default function Index() {
 				maxSize={480}
 				className="flex flex-col p-4 pl-0 overflow-visible!"
 			>
-				<div className="flex flex-col grow bg-gray-1 rounded-xl shadow-sm overflow-hidden min-h-0">
-					<div className="px-3 py-2 border-b border-gray-6">
-						<h2 className="text-sm font-medium text-gray-12">Attributes</h2>
-						<p className="text-xs text-gray-10 mt-0.5">Click a node in the preview to inspect it.</p>
-					</div>
-					<div className="flex-1 overflow-auto p-3">
-						{selectedNode ? (
-							<dl className="space-y-3 text-sm">
+				<div className="flex flex-col grow overflow-hidden min-h-0 justify-center">
+					{selectedNode ? (
+						<dl className="space-y-3 text-sm">
+							<div>
+								<dt className="text-gray-10 font-medium mb-0.5">Tag</dt>
+								<dd className="text-gray-12 font-mono">&lt;{selectedNode.tagName}&gt;</dd>
+							</div>
+							{Object.keys(selectedNode.attributes).length > 0 ? (
 								<div>
-									<dt className="text-gray-10 font-medium mb-0.5">Tag</dt>
-									<dd className="text-gray-12 font-mono">&lt;{selectedNode.tagName}&gt;</dd>
+									<dt className="text-gray-10 font-medium mb-1">Attributes</dt>
+									<dd className="space-y-1.5">
+										{Object.entries(selectedNode.attributes).map(([name, value]) => (
+											<div
+												key={name}
+												className="font-mono text-gray-12 text-xs bg-gray-2 rounded px-2 py-1.5 break-all"
+											>
+												<span className="text-blue-11">{name}</span>
+												{value ? (
+													<>
+														<span className="text-gray-10">=</span>
+														<span className="text-green-11">&quot;{value}&quot;</span>
+													</>
+												) : null}
+											</div>
+										))}
+									</dd>
 								</div>
-								{Object.keys(selectedNode.attributes).length > 0 ? (
-									<div>
-										<dt className="text-gray-10 font-medium mb-1">Attributes</dt>
-										<dd className="space-y-1.5">
-											{Object.entries(selectedNode.attributes).map(([name, value]) => (
-												<div key={name} className="font-mono text-gray-12 text-xs bg-gray-2 rounded px-2 py-1.5 break-all">
-													<span className="text-blue-11">{name}</span>
-													{value ? (
-														<>
-															<span className="text-gray-10">=</span>
-															<span className="text-green-11">&quot;{value}&quot;</span>
-														</>
-													) : null}
-												</div>
-											))}
-										</dd>
-									</div>
-								) : (
-									<div>
-										<dt className="text-gray-10 font-medium mb-0.5">Attributes</dt>
-										<dd className="text-gray-9 text-xs">None</dd>
-									</div>
-								)}
-							</dl>
-						) : (
-							<p className="text-gray-9 text-sm">No node selected. Click an element in the preview.</p>
-						)}
-					</div>
+							) : (
+								<div>
+									<dt className="text-gray-10 font-medium mb-0.5">Attributes</dt>
+									<dd className="text-gray-9 text-xs">None</dd>
+								</div>
+							)}
+						</dl>
+					) : (
+						<p className="text-gray-9 text-sm">
+							No node selected. Click an element in the preview.
+						</p>
+					)}
 				</div>
 			</Panel>
 		</Group>
