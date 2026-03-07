@@ -1,6 +1,5 @@
 import { html } from "@codemirror/lang-html";
 import { codeFolding, foldGutter } from "@codemirror/language";
-import { EditorView } from "@codemirror/view";
 import CodeMirror from "@uiw/react-codemirror";
 import * as beautify from "js-beautify";
 import { useCallback, useEffect, useState } from "react";
@@ -55,6 +54,8 @@ const PICKER_HOVER_STYLES = `
 }
 `;
 
+const CODE_STORAGE_KEY = "animator-code";
+
 function buildPreviewDocument(bodyHtml: string): string {
 	const scriptBody = PICKER_SCRIPT.replace(/<\/script>/gi, "</scr" + "ipt>");
 	return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><script src="${TAILWIND_CDN}"></script><style>${PICKER_HOVER_STYLES}</style></head><body class="h-screen flex items-center justify-center">${bodyHtml}<script>${scriptBody}</script></body></html>`;
@@ -84,6 +85,27 @@ export type NodeProperties = {
 export default function Index() {
 	const [pastedSnippet, setPastedSnippet] = useState("");
 	const [selectedNode, setSelectedNode] = useState<NodeProperties | null>(null);
+
+	useEffect(() => {
+		try {
+			const stored = localStorage.getItem(CODE_STORAGE_KEY);
+			if (stored) setPastedSnippet(stored);
+		} catch {
+			// ignore localStorage errors (private mode, etc.)
+		}
+	}, []);
+
+	useEffect(() => {
+		try {
+			if (pastedSnippet) {
+				localStorage.setItem(CODE_STORAGE_KEY, pastedSnippet);
+			} else {
+				localStorage.removeItem(CODE_STORAGE_KEY);
+			}
+		} catch {
+			// ignore localStorage errors
+		}
+	}, [pastedSnippet]);
 
 	useEffect(() => {
 		const onMessage = (e: MessageEvent) => {
@@ -130,12 +152,12 @@ export default function Index() {
 							onChange={setPastedSnippet}
 							extensions={[
 								html(),
-								EditorView.lineWrapping,
+								// EditorView.lineWrapping,
 								codeFolding(),
 								foldGutter({ markerDOM: createFoldMarker }),
 							]}
-							basicSetup={{ lineNumbers: true, foldGutter: false }}
-							className="h-fit text-[13px] py-4 [&_.cm-editor]:h-full [&_.cm-editor]:bg-transparent! [&_.cm-scroller]:min-h-[200px] [&_.cm-lineNumbers]:hidden! [&_.cm-content]:bg-transparent [&_.cm-gutters]:bg-gray-3! [&_.cm-gutters]:border-none! [&_.cm-scroller]:font-mono! [&_.cm-scroller]:leading-normal! [&_.cm-focused]:outline-none! [&_.cm-gutterElement_span]:w-[19.5px] [&_.cm-gutterElement_span]:mx-1 [&_.cm-gutterElement_span]:flex! [&_.cm-gutterElement_span]:items-center! [&_.cm-gutterElement_span]:justify-center! [&_.cm-gutterElement_span]:h-[19.5px] [&_.cm-gutterElement_span]:hover:bg-gray-4 [&_.cm-gutterElement_span]:rounded"
+							basicSetup={{ foldGutter: false }}
+							className="h-fit text-[13px] py-4 [&_.cm-editor]:h-full [&_.cm-editor]:bg-transparent! [&_.cm-scroller]:min-h-[200px] [&_.cm-lineNumbers]:hidden! [&_.cm-content]:bg-transparent [&_.cm-gutters]:bg-gray-3! [&_.cm-gutters]:border-none! [&_.cm-scroller]:font-mono! [&_.cm-scroller]:leading-normal! [&_.cm-focused]:outline-none! [&_.cm-gutterElement]:w-10 [&_.cm-gutterElement]:flex [&_.cm-gutterElement]:justify-center [&_.cm-gutterElement_span]:w-[19.5px]  [&_.cm-gutterElement_span]:flex! [&_.cm-gutterElement_span]:items-center! [&_.cm-gutterElement_span]:justify-center! [&_.cm-gutterElement_span]:h-[19.5px] [&_.cm-gutterElement_span]:hover:bg-gray-4 [&_.cm-gutterElement_span]:rounded"
 						/>
 					) : (
 						<div className="flex flex-col items-center justify-center grow text-gray-11 gap-2 p-6 text-center">
