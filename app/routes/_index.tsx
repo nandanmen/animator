@@ -1,190 +1,20 @@
-import { html } from "@codemirror/lang-html";
-import { codeFolding, foldGutter } from "@codemirror/language";
-import CodeMirror from "@uiw/react-codemirror";
 import * as beautify from "js-beautify";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
-
-const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
-
-const PICKER_SCRIPT = `
-(function() {
-  var lastHovered = null;
-  var hoverClass = 'animator-hover-ring';
-
-  document.addEventListener('mousemove', function(e) {
-    var el = document.elementFromPoint(e.clientX, e.clientY);
-    if (el !== lastHovered) {
-      if (lastHovered) lastHovered.classList.remove(hoverClass);
-      lastHovered = el && el !== document.body ? el : null;
-      if (lastHovered) lastHovered.classList.add(hoverClass);
-    }
-  }, true);
-
-  document.addEventListener('mouseleave', function() {
-    if (lastHovered) {
-      lastHovered.classList.remove(hoverClass);
-      lastHovered = null;
-    }
-  }, true);
-
-  document.addEventListener('click', function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    var el = e.target;
-    if (!el || !el.attributes || el === document.body) return;
-    var attrs = {};
-    for (var i = 0; i < el.attributes.length; i++) {
-      var a = el.attributes[i];
-      attrs[a.name] = a.value;
-    }
-    window.parent.postMessage({
-      type: 'animator-select',
-      tagName: el.tagName.toLowerCase(),
-      attributes: attrs
-    }, '*');
-  }, true);
-})();
-`;
-
-const PICKER_HOVER_STYLES = `
-.animator-hover-ring {
-  outline: 2px solid var(--blue-9, #3b82f6);
-  outline-offset: 2px;
-}
-`;
+import { HtmlEditor } from "~/components/html-editor";
+import { KeyframeChangesSidebar } from "~/components/keyframe-changes-sidebar";
+import { PreviewPanel } from "~/components/preview-panel";
+import { Timeline } from "~/components/timeline";
+import type { Keyframe, NodeProperties } from "~/lib/types";
 
 const CODE_STORAGE_KEY = "animator-code";
 const KEYFRAMES_STORAGE_KEY = "animator-keyframes";
 
-export type Keyframe = {
-	id: string;
-	name: string;
-	html: string;
-};
+export type { Keyframe, NodeProperties } from "~/lib/types";
 
 function nextKeyframeName(keyframes: Keyframe[]): string {
 	const n = keyframes.length + 1;
 	return `Keyframe ${n}`;
-}
-
-function buildPreviewDocument(bodyHtml: string): string {
-	const scriptBody = PICKER_SCRIPT.replace(/<\/script>/gi, "</scr" + "ipt>");
-	return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><script src="${TAILWIND_CDN}"></script><style>${PICKER_HOVER_STYLES}</style></head><body class="h-screen flex items-center justify-center">${bodyHtml}<script>${scriptBody}</script></body></html>`;
-}
-
-const FOLD_CARET_SVG =
-	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M8 10L10.9393 12.9393C11.5251 13.5251 12.4749 13.5251 13.0607 12.9393L16 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-
-function createFoldMarker(open: boolean): HTMLElement {
-	const span = document.createElement("span");
-	span.className = "cm-foldMarker";
-	span.innerHTML = FOLD_CARET_SVG;
-	span.style.display = "inline-flex";
-	span.style.alignItems = "center";
-	span.style.justifyContent = "center";
-	if (!open) {
-		span.style.transform = "rotate(-90deg)";
-	}
-	return span;
-}
-
-export type NodeProperties = {
-	tagName: string;
-	attributes: Record<string, string>;
-};
-
-export type KeyframeChange =
-	| { type: "removed"; path: string; tagName: string; class?: string }
-	| { type: "added"; path: string; tagName: string; class?: string }
-	| { type: "classChanged"; path: string; tagName: string; from: string; to: string };
-
-function getElementMap(
-	html: string,
-): Map<string, { tagName: string; class: string | undefined }> {
-	const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
-	const wrap = doc.body.firstElementChild;
-	if (!wrap) return new Map();
-	const map = new Map<string, { tagName: string; class: string | undefined }>();
-
-	function visit(el: Element, path: string) {
-		const tagName = el.tagName.toLowerCase();
-		const cls = el.getAttribute("class") ?? undefined;
-		map.set(path, { tagName, class: cls });
-		let i = 0;
-		for (const child of el.children) {
-			visit(child, path ? `${path}.${i}` : String(i));
-			i++;
-		}
-	}
-
-	let i = 0;
-	for (const child of wrap.children) {
-		visit(child, String(i));
-		i++;
-	}
-	return map;
-}
-
-function compareKeyframes(prevHtml: string, currHtml: string): KeyframeChange[] {
-	const prevMap = getElementMap(prevHtml);
-	const currMap = getElementMap(currHtml);
-	const changes: KeyframeChange[] = [];
-
-	function strictPrefixes(p: string): string[] {
-		const parts = p.split(".");
-		const result: string[] = [];
-		for (let i = 1; i < parts.length; i++) {
-			result.push(parts.slice(0, i).join("."));
-		}
-		return result;
-	}
-
-	for (const [path, prevEntry] of prevMap) {
-		if (!currMap.has(path)) {
-			const ancestors = strictPrefixes(path);
-			if (ancestors.every((prefix) => currMap.has(prefix))) {
-				changes.push({
-					type: "removed",
-					path,
-					tagName: prevEntry.tagName,
-					class: prevEntry.class,
-				});
-			}
-		} else {
-			const currEntry = currMap.get(path)!;
-			if (currEntry.tagName === prevEntry.tagName) {
-				const prevClass = prevEntry.class ?? "";
-				const currClass = currEntry.class ?? "";
-				if (prevClass !== currClass) {
-					changes.push({
-						type: "classChanged",
-						path,
-						tagName: currEntry.tagName,
-						from: prevClass,
-						to: currClass,
-					});
-				}
-			}
-		}
-	}
-
-	for (const [path, currEntry] of currMap) {
-		if (!prevMap.has(path)) {
-			// Include only if every ancestor existed in prev (so this is the root of an added subtree)
-			const ancestors = strictPrefixes(path);
-			if (ancestors.every((prefix) => prevMap.has(prefix))) {
-				changes.push({
-					type: "added",
-					path,
-					tagName: currEntry.tagName,
-					class: currEntry.class,
-				});
-			}
-		}
-	}
-
-	return changes;
 }
 
 function loadKeyframesState(): { keyframes: Keyframe[]; activeKeyframeId: string } {
@@ -206,7 +36,6 @@ function loadKeyframesState(): { keyframes: Keyframe[]; activeKeyframeId: string
 				};
 			}
 		}
-		// Migrate from legacy single-snippet storage
 		const legacy = localStorage.getItem(CODE_STORAGE_KEY);
 		const html = typeof legacy === "string" ? legacy : "";
 		const keyframes: Keyframe[] = [{ id: crypto.randomUUID(), name: "Keyframe 1", html }];
@@ -228,7 +57,9 @@ export default function Index() {
 	const setActiveKeyframeId = (id: string) => {
 		setKeyframesState((prev) => ({ ...prev, activeKeyframeId: id }));
 	};
+	// biome-ignore lint/correctness/noUnusedVariables: kept for future Attributes panel
 	const [selectedNode, setSelectedNode] = useState<NodeProperties | null>(null);
+	// biome-ignore lint/correctness/noUnusedVariables: kept for future Attributes panel
 	const [attributesPanelOpen, setAttributesPanelOpen] = useState(true);
 
 	const activeKeyframe = keyframes.find((k) => k.id === activeKeyframeId) ?? keyframes[0];
@@ -243,7 +74,7 @@ export default function Index() {
 				keyframes: prev.keyframes.map((k) => (k.id === targetId ? { ...k, html } : k)),
 			}));
 		},
-		[activeKeyframe]
+		[activeKeyframe],
 	);
 
 	const addKeyframe = useCallback(() => {
@@ -315,7 +146,7 @@ export default function Index() {
 				setSelectedNode(null);
 			}
 		},
-		[setActiveKeyframeHtml]
+		[setActiveKeyframeHtml],
 	);
 
 	return (
@@ -330,163 +161,37 @@ export default function Index() {
 						className="flex flex-col overflow-visible!"
 					>
 						<div className="flex flex-col grow overflow-auto min-h-0 -mb-4">
-							{activeKeyframe ? (
-								<CodeMirror
-									value={activeKeyframe.html}
-									onChange={setActiveKeyframeHtml}
-									extensions={[
-										html(),
-										// EditorView.lineWrapping,
-										codeFolding(),
-										foldGutter({ markerDOM: createFoldMarker }),
-									]}
-									basicSetup={{ foldGutter: false }}
-									className="h-fit text-gray-12 text-[13px] py-4 [&_.cm-editor]:h-full [&_.cm-editor]:bg-transparent! [&_.cm-scroller]:min-h-[200px] [&_.cm-lineNumbers]:hidden! [&_.cm-content]:bg-transparent [&_.cm-gutters]:bg-gray-3! [&_.cm-gutters]:border-none! [&_.cm-scroller]:font-mono! [&_.cm-scroller]:leading-normal! [&_.cm-focused]:outline-none! [&_.cm-gutterElement]:w-10 [&_.cm-gutterElement]:flex [&_.cm-gutterElement]:justify-center [&_.cm-gutterElement_span]:w-[19.5px]  [&_.cm-gutterElement_span]:flex! [&_.cm-gutterElement_span]:items-center! [&_.cm-gutterElement_span]:justify-center! [&_.cm-gutterElement_span]:h-[19.5px] [&_.cm-gutterElement_span]:hover:bg-gray-4 [&_.cm-gutterElement_span]:rounded"
-								/>
-							) : (
-								<div className="flex flex-col items-center justify-center grow text-gray-11 gap-2 p-6 text-center">
-									<p className="font-medium">Paste HTML in the preview to see the code here</p>
-									<p className="text-sm text-gray-10">
-										Use Cmd+V (Mac) or Ctrl+V (Windows) in the preview panel.
-									</p>
-								</div>
-							)}
+							<HtmlEditor
+								value={activeKeyframe?.html ?? ""}
+								onChange={setActiveKeyframeHtml}
+							/>
 						</div>
 					</Panel>
 
 					<Separator className="w-2 mx-1 rounded shrink-0 bg-transparent transition-colors hover:bg-gray-6 data-[data-separator=active]:bg-blue-6" />
 
 					<Panel id="preview" minSize={240} className="flex flex-col overflow-visible!">
-						<section
-							className="flex flex-col grow bg-gray-1 rounded-xl shadow-sm min-h-0 outline-none focus:ring-2 focus:ring-blue-6 focus:ring-offset-2"
+						<PreviewPanel
+							html={activeKeyframe?.html ?? null}
 							onPaste={handlePaste}
-							// biome-ignore lint/a11y/noNoninteractiveTabindex: paste target must be focusable for Cmd+V
-							tabIndex={0}
-							aria-label="Preview: paste HTML here"
-						>
-							{activeKeyframe ? (
-								<iframe
-									srcDoc={buildPreviewDocument(activeKeyframe.html)}
-									title="HTML preview with Tailwind"
-									className="w-full h-full min-h-[320px] border-0 rounded-xl bg-white"
-									sandbox="allow-same-origin allow-scripts"
-								/>
-							) : null}
-						</section>
+						/>
 					</Panel>
 				</Group>
 				{activeIndex > 0 && prevKeyframe && activeKeyframe ? (
-					<aside className="shrink-0 w-60 flex flex-col overflow-hidden">
-						<p className="text-sm font-medium text-gray-12 mb-2">Keyframe changes</p>
-						<ul className="list-none p-0 m-0 flex flex-col gap-1.5 overflow-auto min-h-0 text-sm">
-							{(() => {
-								const changes = compareKeyframes(prevKeyframe.html, activeKeyframe.html);
-								if (changes.length === 0) {
-									return <li className="text-gray-11">No changes</li>;
-								}
-								return changes.map((change) => (
-									<li key={`${change.type}-${change.path}`} className="truncate">
-										{change.type === "removed" && (
-											<span className="text-red-11">
-												Removed <code className="text-[11px]">&lt;{change.tagName}&gt;</code>
-												{change.class ? ` ${change.class.slice(0, 20)}${change.class.length > 20 ? "…" : ""}` : ""}
-											</span>
-										)}
-										{change.type === "added" && (
-											<span className="text-green-11">
-												Added <code className="text-[11px]">&lt;{change.tagName}&gt;</code>
-												{change.class ? ` ${change.class.slice(0, 20)}${change.class.length > 20 ? "…" : ""}` : ""}
-											</span>
-										)}
-										{change.type === "classChanged" && (
-											<span className="text-gray-11">
-												<code className="text-[11px]">&lt;{change.tagName}&gt;</code> class:{" "}
-												{change.from.slice(0, 15)}
-												{change.from.length > 15 ? "…" : ""} → {change.to.slice(0, 15)}
-												{change.to.length > 15 ? "…" : ""}
-											</span>
-										)}
-									</li>
-								));
-							})()}
-						</ul>
-					</aside>
+					<KeyframeChangesSidebar
+						prevHtml={prevKeyframe.html}
+						currHtml={activeKeyframe.html}
+					/>
 				) : null}
 			</div>
 
-			{/* Timeline */}
-			<div className="shrink-0 border-t border-gray-6 h-60">
-				<div className="h-full px-4 py-3 flex items-center justify-center gap-2 border-t border-gray-2">
-					<div className="flex items-center">
-						{keyframes.map((k, i) => (
-							<Fragment key={k.id}>
-								{i > 0 ? (
-									<div className="w-6 h-0.5 bg-gray-6 shrink-0 rounded-full" aria-hidden="true" />
-								) : null}
-								<button
-									type="button"
-									onClick={() => setActiveKeyframeId(k.id)}
-									className="flex items-center gap-2 shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors data-active:bg-gray-4 data-active:text-gray-12 data-active:ring-1 data-active:ring-gray-8 text-gray-11 hover:text-gray-12 hover:bg-gray-3"
-									data-active={activeKeyframeId === k.id ? true : undefined}
-								>
-									<span
-										className={`w-2 h-2 rounded-full shrink-0 ${activeKeyframeId === k.id ? "bg-blue-9 opacity-100" : "bg-current opacity-50"}`}
-										aria-hidden="true"
-									/>
-									<span className="truncate max-w-[100px]">{k.name}</span>
-									{keyframes.length > 1 ? (
-										<button
-											type="button"
-											aria-label={`Remove ${k.name}`}
-											className="shrink-0 p-0.5 rounded hover:bg-gray-5 text-gray-10 hover:text-red-11"
-											onClick={(e) => {
-												e.stopPropagation();
-												removeKeyframe(k.id);
-											}}
-										>
-											<svg
-												width="12"
-												height="12"
-												viewBox="0 0 24 24"
-												fill="none"
-												stroke="currentColor"
-												strokeWidth="2"
-												strokeLinecap="round"
-												strokeLinejoin="round"
-												aria-hidden="true"
-											>
-												<path d="M18 6 6 18" />
-												<path d="m6 6 12 12" />
-											</svg>
-										</button>
-									) : null}
-								</button>
-							</Fragment>
-						))}
-						<button
-							type="button"
-							onClick={addKeyframe}
-							className="flex items-center justify-center w-8 h-8 rounded-md text-gray-10 hover:text-gray-12 hover:bg-gray-3 shrink-0 ml-1"
-							aria-label="Add keyframe"
-						>
-							<svg
-								width="16"
-								height="16"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-								aria-hidden="true"
-							>
-								<path d="M12 5v14" />
-								<path d="M5 12h14" />
-							</svg>
-						</button>
-					</div>
-				</div>
-			</div>
+			<Timeline
+				keyframes={keyframes}
+				activeKeyframeId={activeKeyframeId}
+				onSelect={setActiveKeyframeId}
+				onAdd={addKeyframe}
+				onRemove={removeKeyframe}
+			/>
 		</div>
 	);
 }
