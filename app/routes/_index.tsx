@@ -224,17 +224,17 @@ export default function Index() {
 	);
 
 	return (
-		<div className="flex flex-col min-h-screen">
-			<div className="grid grid-cols-[1fr_auto] grow pr-2">
-				<Group orientation="horizontal" className="grow py-4 pr-2">
+		<div className="flex flex-col h-screen">
+			<div className="flex grow overflow-hidden">
+				<Group orientation="horizontal" className="grow py-4 pr-4">
 					<Panel
 						id="code"
-						defaultSize={320}
-						minSize={240}
-						maxSize={480}
+						defaultSize={480}
+						minSize={480}
+						maxSize={600}
 						className="flex flex-col overflow-visible!"
 					>
-						<div className="flex flex-col grow overflow-hidden min-h-0">
+						<div className="flex flex-col grow overflow-auto min-h-0 -mb-4">
 							{activeKeyframe ? (
 								<CodeMirror
 									value={activeKeyframe.html}
@@ -246,7 +246,7 @@ export default function Index() {
 										foldGutter({ markerDOM: createFoldMarker }),
 									]}
 									basicSetup={{ foldGutter: false }}
-									className="h-fit text-[13px] py-4 [&_.cm-editor]:h-full [&_.cm-editor]:bg-transparent! [&_.cm-scroller]:min-h-[200px] [&_.cm-lineNumbers]:hidden! [&_.cm-content]:bg-transparent [&_.cm-gutters]:bg-gray-3! [&_.cm-gutters]:border-none! [&_.cm-scroller]:font-mono! [&_.cm-scroller]:leading-normal! [&_.cm-focused]:outline-none! [&_.cm-gutterElement]:w-10 [&_.cm-gutterElement]:flex [&_.cm-gutterElement]:justify-center [&_.cm-gutterElement_span]:w-[19.5px]  [&_.cm-gutterElement_span]:flex! [&_.cm-gutterElement_span]:items-center! [&_.cm-gutterElement_span]:justify-center! [&_.cm-gutterElement_span]:h-[19.5px] [&_.cm-gutterElement_span]:hover:bg-gray-4 [&_.cm-gutterElement_span]:rounded"
+									className="h-fit text-gray-12 text-[13px] py-4 [&_.cm-editor]:h-full [&_.cm-editor]:bg-transparent! [&_.cm-scroller]:min-h-[200px] [&_.cm-lineNumbers]:hidden! [&_.cm-content]:bg-transparent [&_.cm-gutters]:bg-gray-3! [&_.cm-gutters]:border-none! [&_.cm-scroller]:font-mono! [&_.cm-scroller]:leading-normal! [&_.cm-focused]:outline-none! [&_.cm-gutterElement]:w-10 [&_.cm-gutterElement]:flex [&_.cm-gutterElement]:justify-center [&_.cm-gutterElement_span]:w-[19.5px]  [&_.cm-gutterElement_span]:flex! [&_.cm-gutterElement_span]:items-center! [&_.cm-gutterElement_span]:justify-center! [&_.cm-gutterElement_span]:h-[19.5px] [&_.cm-gutterElement_span]:hover:bg-gray-4 [&_.cm-gutterElement_span]:rounded"
 								/>
 							) : (
 								<div className="flex flex-col items-center justify-center grow text-gray-11 gap-2 p-6 text-center">
@@ -280,124 +280,15 @@ export default function Index() {
 						</section>
 					</Panel>
 				</Group>
-
-				{/* Attributes panel: fixed 300px, toggleable */}
-				{attributesPanelOpen ? (
-					<aside
-						className="w-[300px] shrink-0 flex flex-col overflow-hidden my-4"
-						aria-label="Element attributes"
-					>
-						<div className="flex items-center justify-between border-b border-gray-6 shrink-0">
-							<span className="text-xs font-medium text-gray-11 uppercase tracking-wider">
-								Attributes
-							</span>
-							<button
-								type="button"
-								onClick={() => setAttributesPanelOpen(false)}
-								className="p-1.5 rounded-md text-gray-10 hover:text-gray-12 hover:bg-gray-3"
-								aria-label="Close attributes panel"
-							>
-								<svg
-									width="14"
-									height="14"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									aria-hidden="true"
-								>
-									<path d="M18 6 6 18" />
-									<path d="m6 6 12 12" />
-								</svg>
-							</button>
-						</div>
-						<div className="flex flex-col grow overflow-auto min-h-0 p-4 justify-center">
-							{selectedNode ? (
-								<dl className="space-y-3 text-sm">
-									<div>
-										<dt className="text-gray-10 font-medium mb-0.5">Tag</dt>
-										<dd className="text-gray-12 font-mono">&lt;{selectedNode.tagName}&gt;</dd>
-									</div>
-									{Object.keys(selectedNode.attributes).length > 0 ? (
-										<div>
-											<dt className="text-gray-10 font-medium mb-1">Attributes</dt>
-											<dd className="space-y-1.5">
-												{Object.entries(selectedNode.attributes).map(([name, value]) => (
-													<div
-														key={name}
-														className="font-mono text-gray-12 text-xs bg-gray-2 rounded px-2 py-1.5 break-all"
-													>
-														<span className="text-blue-11">{name}</span>
-														{value ? (
-															<>
-																<span className="text-gray-10">=</span>
-																<span className="text-green-11">&quot;{value}&quot;</span>
-															</>
-														) : null}
-													</div>
-												))}
-											</dd>
-										</div>
-									) : (
-										<div>
-											<dt className="text-gray-10 font-medium mb-0.5">Attributes</dt>
-											<dd className="text-gray-9 text-xs">None</dd>
-										</div>
-									)}
-								</dl>
-							) : (
-								<p className="text-gray-9 text-sm">
-									No node selected. Click an element in the preview.
-								</p>
-							)}
-						</div>
-					</aside>
-				) : (
-					<button
-						type="button"
-						onClick={() => setAttributesPanelOpen(true)}
-						className="shrink-0 px-2 my-4 flex flex-col items-center justify-center gap-1 hover:bg-gray-4 text-gray-10 hover:text-gray-12 py-4 rounded-xl"
-						aria-label="Open attributes panel"
-					>
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							viewBox="0 0 24 24"
-							fill="none"
-							width="20"
-							aria-hidden="true"
-						>
-							<path
-								d="M3.0025 5.99945C3.0025 4.34398 4.34453 3.00195 6 3.00195H8C9.65548 3.00195 10.9975 4.34398 10.9975 5.99945V7.99945C10.9975 9.65493 9.65548 10.997 8 10.997H6C4.34453 10.997 3.0025 9.65493 3.0025 7.99945V5.99945Z"
-								fill="currentColor"
-							/>
-							<path
-								d="M3.0025 15.9995C3.0025 14.344 4.34453 13.002 6 13.002H8C9.65548 13.002 10.9975 14.344 10.9975 15.9995V17.9995C10.9975 19.6549 9.65548 20.997 8 20.997H6C4.34453 20.997 3.0025 19.6549 3.0025 17.9995V15.9995Z"
-								fill="currentColor"
-							/>
-							<path
-								d="M13.0025 5.99945C13.0025 4.34398 14.3445 3.00195 16 3.00195H18C19.6555 3.00195 20.9975 4.34398 20.9975 5.99945V7.99945C20.9975 9.65493 19.6555 10.997 18 10.997H16C14.3445 10.997 13.0025 9.65493 13.0025 7.99945V5.99945Z"
-								fill="currentColor"
-							/>
-							<path
-								fillRule="evenodd"
-								clipRule="evenodd"
-								d="M17 13.002C14.7922 13.002 13.0025 14.7917 13.0025 16.9995C13.0025 19.2072 14.7922 20.997 17 20.997C19.2078 20.997 20.9975 19.2072 20.9975 16.9995C20.9975 14.7917 19.2078 13.002 17 13.002ZM14.9975 16.9995C14.9975 15.8935 15.8941 14.997 17 14.997C18.106 14.997 19.0025 15.8935 19.0025 16.9995C19.0025 18.1054 18.106 19.002 17 19.002C15.8941 19.002 14.9975 18.1054 14.9975 16.9995Z"
-								fill="currentColor"
-							/>
-						</svg>
-					</button>
-				)}
+				<aside className="shrink-0 w-60">
+					<p>Keyframe changes</p>
+				</aside>
 			</div>
 
 			{/* Timeline */}
-			<div className="shrink-0 border-t border-gray-6 min-h-[56px]">
-				<div className="px-4 py-3 flex items-center gap-2 border-t border-gray-2">
-					<span className="text-xs font-medium text-gray-10 uppercase tracking-wider shrink-0">
-						Timeline
-					</span>
-					<div className="flex items-center gap-0 flex-1 min-w-0">
+			<div className="shrink-0 border-t border-gray-6 h-60">
+				<div className="h-full px-4 py-3 flex items-center justify-center gap-2 border-t border-gray-2">
+					<div className="flex items-center">
 						{keyframes.map((k, i) => (
 							<Fragment key={k.id}>
 								{i > 0 ? (
